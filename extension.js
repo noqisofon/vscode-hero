@@ -185,7 +185,9 @@ function activate(ctx) {
     vscode.window.registerWebviewViewProvider('hero.view', new HeroViewProvider()),
     vscode.commands.registerCommand('hero.show', () => vscode.commands.executeCommand('hero.view.focus')),
     vscode.commands.registerCommand('hero.heal', () => {
-      if (active && game.heal(state)) render();
+      if (!active) {
+        vscode.window.showInformationMessage('別のウィンドウで冒険中のため、このウィンドウでは回復薬を使えません。');
+      } else if (game.heal(state)) render();
       else vscode.window.showInformationMessage(`回復薬は使えません（${game.HEAL_COST}G 必要、HP が満タンだと不要）`);
     }),
     vscode.commands.registerCommand('hero.reset', async () => {

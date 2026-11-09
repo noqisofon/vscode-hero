@@ -62,10 +62,13 @@ test('deactivate は保存の Promise を返す', async (t) => {
 
 test('別ウィンドウが稼働中なら進行も上書き保存もしない', async (t) => {
   const other = { owner: 'other-window', savedAt: Date.now(), state: { level: 7, gold: 99, kills: 5, lastSeen: Date.now() } };
-  const { ext, ctx, store, msgs } = setup(t, other);
+  const { ext, ctx, store, msgs, registered } = setup(t, other);
   ext.activate(ctx);
   t.mock.timers.tick(250 * 20);
   assert.strictEqual(msgs.length, 0, '二重に放置分を計算しない');
+  await registered['hero.heal']();
+  assert.ok(msgs[0].includes('別のウィンドウ'), '表示のみの間は回復薬を使えない旨を通知');
+  assert.strictEqual(store['hero.state'].state.gold, 99, 'ゴールドは減らない');
   assert.strictEqual(store['hero.state'], other, '保存を食い合わない');
   assert.strictEqual(await ext.deactivate(), undefined);
   assert.strictEqual(store['hero.state'].owner, 'other-window');
