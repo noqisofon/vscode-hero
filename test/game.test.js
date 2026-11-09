@@ -62,7 +62,7 @@ test('死亡するとゴールドを失い退却する', () => {
   g.tick(s, () => 0.5);
   assert.strictEqual(s.deaths, 1);
   assert.strictEqual(s.floor, 17);
-  assert.strictEqual(s.gold, 80);
+  assert.strictEqual(s.gold, 40); // 失うのは 階数20 × 3 = 60G
 });
 
 test('回復薬', () => {
@@ -127,4 +127,12 @@ test('回帰: 序盤の死亡が多すぎない（最初の300ターンで10回�
     assert.ok(s.deaths <= 10, `seed=${seed} deaths=${s.deaths}`);
     assert.ok(s.bestFloor >= 10, `seed=${seed} best=${s.bestFloor}`);
   }
+});
+
+test('死亡時のゴールド損失は定額で、貯金が多くても増えない', () => {
+  const s = g.newState();
+  s.floor = 20; s.gold = 100000; s.hp = 1;
+  s.monster = { name: 'x', icon: 'x', boss: false, hp: 9999, maxHp: 9999, atk: 50, xp: 1, gold: 1 };
+  g.tick(s, () => 0.5);
+  assert.strictEqual(s.gold, 100000 - 60);
 });
