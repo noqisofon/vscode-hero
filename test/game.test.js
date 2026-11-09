@@ -57,7 +57,7 @@ test('不変条件: HP は 0 超〜最大、ログは上限以内', () => {
 
 test('死亡するとゴールドを失い退却する', () => {
   const s = g.newState();
-  s.floor = 20; s.gold = 100; s.hp = 1;
+  s.level = 21; s.floor = 20; s.gold = 100; s.hp = 1;
   s.monster = { name: 'x', icon: 'x', boss: false, hp: 9999, maxHp: 9999, atk: 50, xp: 1, gold: 1 };
   g.tick(s, () => 0.5);
   assert.strictEqual(s.deaths, 1);
@@ -120,18 +120,18 @@ test('ボス階で全快でも弱ければ挑まず、鍛えてから挑む', ()
   assert.strictEqual(s.floor, 10);
 });
 
-test('回帰: 序盤の死亡が多すぎない（最初の300ターンで10回以下）', () => {
+test('回帰: 序盤の死亡が多すぎない（最初の300ターンで15回以下。ボス前ゲート導入前は約34回）', () => {
   for (const seed of [1, 2, 3, 4, 5]) {
     const s = g.newState();
     g.simulate(s, 300, seeded(seed));
-    assert.ok(s.deaths <= 10, `seed=${seed} deaths=${s.deaths}`);
+    assert.ok(s.deaths <= 15, `seed=${seed} deaths=${s.deaths}`);
     assert.ok(s.bestFloor >= 10, `seed=${seed} best=${s.bestFloor}`);
   }
 });
 
 test('死亡時のゴールド損失は定額で、貯金が多くても増えない', () => {
   const s = g.newState();
-  s.floor = 20; s.gold = 100000; s.hp = 1;
+  s.level = 30; s.floor = 20; s.gold = 100000; s.hp = 1;
   s.monster = { name: 'x', icon: 'x', boss: false, hp: 9999, maxHp: 9999, atk: 50, xp: 1, gold: 1 };
   g.tick(s, () => 0.5);
   assert.strictEqual(s.gold, 100000 - 60);
@@ -145,5 +145,17 @@ test('回帰: 放置で長く遊べる（30階までは約30分、10時間で40�
     for (let i = 1; i <= 36000; i++) { g.tick(s, rng); if (!at30 && s.bestFloor >= 30) at30 = i; }
     assert.ok(at30 > 0 && at30 <= 2500, `seed=${seed} 30F到達=${at30}`);
     assert.ok(s.bestFloor >= 38, `seed=${seed} 10時間後 best=${s.bestFloor}`);
+  }
+});
+
+test('Lv20まではゴールドを失わず、Lv21からは失う', () => {
+  for (const [level, expected] of [[1, 100], [20, 100], [21, 100 - 60]]) {
+    const s = g.newState();
+    s.level = level; s.floor = 20; s.gold = 100; s.hp = 1;
+    s.monster = { name: 'x', icon: 'x', boss: false, hp: 9999, maxHp: 9999, atk: 999, xp: 1, gold: 1 };
+    g.tick(s, () => 0.5);
+    assert.strictEqual(s.deaths, 1, `Lv${level}`);
+    assert.strictEqual(s.gold, expected, `Lv${level}`);
+    assert.strictEqual(s.floor, 17);
   }
 });

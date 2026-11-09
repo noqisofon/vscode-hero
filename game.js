@@ -16,6 +16,7 @@ const BOSS_MIN_HP_RATIO = 0.6; // HP がこの割合未満ならボスに挑ま�
 const BOSS_SCALE_BONUS = 0.5;
 const BOSS_HP_MULT = 1.5;
 const BOSS_ATK_MULT = 0.8;
+const DEATH_GRACE_LEVEL = 20; // このレベルまでは死んでもゴールドを失わない
 const DEATH_GOLD_PER_FLOOR = 3; // 死亡時に失うゴールド = 階数 × これ
 const GEAR_COST_GROWTH = 1.3; // 装備費は購入ごとにこの倍率で増える
 const HEAL_COST = 50;
@@ -127,12 +128,12 @@ function tick(s, rng = Math.random) {
 
   if (s.hp <= 0) {
     s.deaths++;
-    const lost = Math.min(s.gold, s.floor * DEATH_GOLD_PER_FLOOR); // 所持金に比例させず定額（比例だと死亡の積み重ねで貯金できず詰む）
+    const lost = s.level <= DEATH_GRACE_LEVEL ? 0 : Math.min(s.gold, s.floor * DEATH_GOLD_PER_FLOOR); // 所持金に比例させず定額（比例だと死亡の積み重ねで貯金できず詰む）
     s.gold -= lost;
     s.floor = Math.max(1, s.floor - (m.boss ? 1 : 3));
     s.hp = maxHp(s);
     s.monster = null;
-    pushLog(s, `☠️ ${s.name} は倒れた… ${lost}G を失い、${s.floor} 階まで退却`);
+    pushLog(s, `☠️ ${s.name} は倒れた… ${lost ? `${lost}G を失い、` : ''}${s.floor} 階まで退却`);
   }
 }
 
