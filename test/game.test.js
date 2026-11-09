@@ -90,3 +90,24 @@ test('壊れたデータ: 負数・hp<=0・不正な monster', () => {
   assert.strictEqual(s.floor, 1);
   assert.strictEqual(s.monster, null);
 });
+
+test('ボス階でHPが6割未満なら、階を進めず雑魚で回復してから挑む', () => {
+  const s = g.newState();
+  s.floor = 10; s.level = 10; s.hp = Math.floor(g.maxHp(s) * 0.3); s.monster = null;
+  g.tick(s, () => 0.5);
+  assert.ok(s.monster.prep && !s.monster.boss, '回復待ちの雑魚が出る');
+  s.monster.hp = 1; // 倒させる
+  const hpBefore = s.hp;
+  g.tick(s, () => 0.5);
+  assert.strictEqual(s.floor, 10, '階は進まない');
+  assert.ok(s.hp > hpBefore, '撃破で少し回復');
+  for (let i = 0; i < 200 && !(s.monster && s.monster.boss); i++) { s.hp = Math.min(g.maxHp(s), s.hp + 5); if (s.monster) s.monster.hp = 1; g.tick(s, () => 0.5); }
+  assert.ok(s.hp >= g.maxHp(s) * 0.6);
+});
+
+test('ボス階でHPが十分ならボスが出る', () => {
+  const s = g.newState();
+  s.floor = 10; s.hp = g.maxHp(s); s.monster = null;
+  g.tick(s, () => 0.5);
+  assert.ok(s.monster.boss && !s.monster.prep);
+});

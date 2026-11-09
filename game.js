@@ -11,6 +11,7 @@ const MONSTERS = [
   { name: 'ドラゴン', icon: '🐉', hp: 6, atk: 3.5, xp: 12, gold: 15 },
 ];
 const BOSS_EVERY = 10; // 10 階ごとにボス
+const BOSS_MIN_HP_RATIO = 0.6; // HP がこの割合未満ならボスに挑まず、通常モンスターで回復する
 const BOSS_SCALE_BONUS = 0.5;
 const BOSS_HP_MULT = 1.5;
 const BOSS_ATK_MULT = 0.8;
@@ -38,18 +39,21 @@ function pushLog(s, msg) {
 }
 
 function spawn(s, rng) {
-  const boss = s.floor % BOSS_EVERY === 0;
+  const bossFloor = s.floor % BOSS_EVERY === 0;
+  const boss = bossFloor && s.hp >= maxHp(s) * BOSS_MIN_HP_RATIO;
+  const prep = bossFloor && !boss; // ボス前の回復待ち: 1 つ下の階相当の雑魚と戦い、階は進めない
   const tier = Math.min(MONSTERS.length - 1, Math.floor((s.floor - 1) / 3));
   const base = boss ? MONSTERS[MONSTERS.length - 1] : MONSTERS[Math.max(0, tier - Math.floor(rng() * 2))];
-  const scale = 1 + (s.floor - 1) * 0.35 + (boss ? BOSS_SCALE_BONUS : 0);
+  const scale = 1 + (prep ? s.floor - 2 : s.floor - 1) * 0.35 + (boss ? BOSS_SCALE_BONUS : 0);
   const hp = Math.ceil(10 * base.hp * scale * (boss ? BOSS_HP_MULT : 1));
   s.monster = {
-    name: (boss ? 'ボス ' : '') + base.name, icon: base.icon, boss,
+    name: (boss ? 'ボス ' : '') + base.name, icon: base.icon, boss, prep,
     hp, maxHp: hp,
     atk: Math.max(1, Math.round(2 * base.atk * scale * (boss ? BOSS_ATK_MULT : 1))),
     xp: Math.ceil(4 * base.xp * scale * (boss ? 4 : 1)),
     gold: Math.ceil(3 * base.gold * scale * (boss ? 4 : 1)),
   };
+  if (prep) pushLog(s, `🩹 ボスに備えて体力を整える (HP ${s.hp}/${maxHp(s)})`);
   pushLog(s, `${s.monster.icon} ${s.monster.name} が現れた！`);
 }
 
@@ -90,7 +94,7 @@ function tick(s, rng = Math.random) {
     pushLog(s, `🏆 ${m.name} を倒した！ +${m.xp}XP +${m.gold}G`);
     gainXp(s, m.xp);
     if (m.boss) pushLog(s, `👑 ボス撃破！ ${s.floor} 階クリア`);
-    s.floor++;
+    if (!m.prep) s.floor++;
     s.bestFloor = Math.max(s.bestFloor, s.floor);
     s.monster = null;
     s.hp = Math.min(maxHp(s), s.hp + Math.ceil(maxHp(s) * 0.1));
