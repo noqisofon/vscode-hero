@@ -15,6 +15,35 @@ test('ヒーローは放置すると成長する', () => {
   assert.ok(s.bestFloor > 5);
 });
 
+test('回帰: ボスが壁にならない（シードを変えても段階的に進む）', () => {
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const s = g.newState();
+    const rng = seeded(seed);
+    let at20 = 0;
+    for (let i = 1; i <= 8000 && !at20; i++) { g.tick(s, rng); if (s.bestFloor >= 20) at20 = i; }
+    assert.ok(at20 > 0 && at20 <= 2000, `seed=${seed} 20F到達=${at20}`);
+    g.simulate(s, 12000, rng); // 計 約1.5時間
+    assert.ok(s.bestFloor >= 30, `seed=${seed} best=${s.bestFloor}`);
+  }
+});
+
+test('ボス戦で負けても退却は1階だけ', () => {
+  const s = g.newState();
+  s.floor = 10; s.hp = 1;
+  s.monster = { name: 'ボス', icon: 'x', boss: true, hp: 9999, maxHp: 9999, atk: 50, xp: 1, gold: 1 };
+  g.tick(s, () => 0.5);
+  assert.strictEqual(s.floor, 9);
+});
+
+test('自動購入のあとも回復薬分のゴールドが残る', () => {
+  const s = g.newState();
+  s.gold = 500;
+  s.monster = { name: 'x', icon: 'x', boss: false, hp: 1, maxHp: 1, atk: 1, xp: 1, gold: 0 };
+  g.tick(s, () => 0.5);
+  assert.ok(s.weapon + s.armor > 0);
+  assert.ok(s.gold >= g.HEAL_COST, `gold=${s.gold}`);
+});
+
 test('不変条件: HP は 0 超〜最大、ログは上限以内', () => {
   const s = g.newState();
   const rng = seeded(7);
@@ -50,4 +79,14 @@ test('壊れた保存データを補完する', () => {
   assert.strictEqual(s.level, 1);
   assert.strictEqual(s.gold, 5);
   assert.deepStrictEqual(s.log, []);
+});
+
+test('壊れたデータ: 負数・hp<=0・不正な monster', () => {
+  const s = g.load({ hp: 0, xp: -5, gold: -1, weapon: -2, armor: -1, floor: 0, monster: { hp: -3, maxHp: 10 } });
+  assert.strictEqual(s.hp, g.maxHp(s));
+  assert.strictEqual(s.xp, 0);
+  assert.strictEqual(s.gold, 0);
+  assert.strictEqual(s.weapon, 0);
+  assert.strictEqual(s.floor, 1);
+  assert.strictEqual(s.monster, null);
 });

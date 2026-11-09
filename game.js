@@ -11,6 +11,9 @@ const MONSTERS = [
   { name: 'ドラゴン', icon: '🐉', hp: 6, atk: 3.5, xp: 12, gold: 15 },
 ];
 const BOSS_EVERY = 10; // 10 階ごとにボス
+const BOSS_SCALE_BONUS = 0.5;
+const BOSS_HP_MULT = 1.5;
+const BOSS_ATK_MULT = 0.8;
 const HEAL_COST = 50;
 const MAX_LOG = 30;
 
@@ -25,7 +28,7 @@ function newState(name = 'ヒーロー') {
 
 const maxHp = (s) => 30 + (s.level - 1) * 8 + s.armor * 5;
 const power = (s) => 4 + (s.level - 1) * 2 + s.weapon * 3;
-const xpToNext = (s) => Math.floor(10 * Math.pow(1.35, s.level - 1));
+const xpToNext = (s) => Math.floor(10 * Math.pow(1.25, s.level - 1));
 const weaponCost = (s) => Math.floor(30 * Math.pow(1.6, s.weapon));
 const armorCost = (s) => Math.floor(30 * Math.pow(1.6, s.armor));
 
@@ -38,12 +41,12 @@ function spawn(s, rng) {
   const boss = s.floor % BOSS_EVERY === 0;
   const tier = Math.min(MONSTERS.length - 1, Math.floor((s.floor - 1) / 3));
   const base = boss ? MONSTERS[MONSTERS.length - 1] : MONSTERS[Math.max(0, tier - Math.floor(rng() * 2))];
-  const scale = 1 + (s.floor - 1) * 0.35 + (boss ? 2 : 0);
-  const hp = Math.ceil(10 * base.hp * scale * (boss ? 3 : 1));
+  const scale = 1 + (s.floor - 1) * 0.35 + (boss ? BOSS_SCALE_BONUS : 0);
+  const hp = Math.ceil(10 * base.hp * scale * (boss ? BOSS_HP_MULT : 1));
   s.monster = {
     name: (boss ? 'ボス ' : '') + base.name, icon: base.icon, boss,
     hp, maxHp: hp,
-    atk: Math.max(1, Math.round(2 * base.atk * scale)),
+    atk: Math.max(1, Math.round(2 * base.atk * scale * (boss ? BOSS_ATK_MULT : 1))),
     xp: Math.ceil(4 * base.xp * scale * (boss ? 4 : 1)),
     gold: Math.ceil(3 * base.gold * scale * (boss ? 4 : 1)),
   };
@@ -63,10 +66,10 @@ function gainXp(s, n) {
 // 装備を自動購入（買えるときは安い方から）
 function autoShop(s) {
   for (let i = 0; i < 5; i++) {
-    const w = weaponCost(s), a = armorCost(s);
-    if (s.weapon <= s.armor && s.gold >= w) { s.gold -= w; s.weapon++; pushLog(s, `⚔️ 武器を強化 (+${s.weapon})`); }
-    else if (s.gold >= a) { s.gold -= a; s.armor++; s.hp = Math.min(maxHp(s), s.hp + 5); pushLog(s, `🛡️ 防具を強化 (+${s.armor})`); }
-    else if (s.gold >= w) { s.gold -= w; s.weapon++; pushLog(s, `⚔️ 武器を強化 (+${s.weapon})`); }
+    const w = weaponCost(s) + HEAL_COST, a = armorCost(s) + HEAL_COST; // 回復薬用に HEAL_COST を残す
+    if (s.weapon <= s.armor && s.gold >= w) { s.gold -= w - HEAL_COST; s.weapon++; pushLog(s, `⚔️ 武器を強化 (+${s.weapon})`); }
+    else if (s.gold >= a) { s.gold -= a - HEAL_COST; s.armor++; s.hp = Math.min(maxHp(s), s.hp + 5); pushLog(s, `🛡️ 防具を強化 (+${s.armor})`); }
+    else if (s.gold >= w) { s.gold -= w - HEAL_COST; s.weapon++; pushLog(s, `⚔️ 武器を強化 (+${s.weapon})`); }
     else break;
   }
 }
@@ -103,7 +106,7 @@ function tick(s, rng = Math.random) {
     s.deaths++;
     const lost = Math.floor(s.gold * 0.2);
     s.gold -= lost;
-    s.floor = Math.max(1, s.floor - 3);
+    s.floor = Math.max(1, s.floor - (m.boss ? 1 : 3));
     s.hp = maxHp(s);
     s.monster = null;
     pushLog(s, `☠️ ${s.name} は倒れた… ${lost}G を失い、${s.floor} 階まで退却`);
@@ -132,9 +135,12 @@ function load(raw, name) {
     if (typeof raw[k] !== 'number' || !Number.isFinite(raw[k])) s[k] = base[k];
   }
   if (!Array.isArray(s.log)) s.log = [];
-  if (s.level < 1) s.level = 1;
-  if (s.floor < 1) s.floor = 1;
-  s.hp = Math.min(s.hp, maxHp(s));
+  for (const k of ['xp', 'gold', 'kills', 'deaths', 'weapon', 'armor']) s[k] = Math.max(0, Math.floor(s[k]));
+  s.level = Math.max(1, Math.floor(s.level));
+  s.floor = Math.max(1, Math.floor(s.floor));
+  s.bestFloor = Math.max(s.floor, Math.floor(s.bestFloor));
+  s.hp = s.hp > 0 ? Math.min(Math.floor(s.hp), maxHp(s)) : maxHp(s);
+  if (!s.monster || typeof s.monster !== 'object' || !(s.monster.hp > 0) || !(s.monster.maxHp > 0)) s.monster = null;
   return s;
 }
 

@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "noqisofon",
   "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/noqisofon/vscode-hero.git" },
   "engines": { "vscode": "^1.80.0" },
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],

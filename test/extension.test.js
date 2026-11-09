@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Module = require('module');
 
-test('拡張の起動・ティック・保存・放置分の進行', async (t) => {
+function setup(t, stored) {
   const msgs = [], registered = {};
   const status = { show() {}, dispose() {} };
   const vscode = {
@@ -25,26 +25,56 @@ test('拡張の起動・ティック・保存・放置分の進行', async (t) =
   };
   const orig = Module._load;
   Module._load = function (r, ...a) { return r === 'vscode' ? vscode : orig.call(this, r, ...a); };
-  t.after(() => { Module._load = orig; });
-
-  const store = { 'hero.state': { level: 3, gold: 10, lastSeen: Date.now() - 600 * 1000 } };
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const store = { 'hero.state': stored };
   const ctx = {
     subscriptions: [],
     globalState: { get: (k) => store[k], update: async (k, v) => { store[k] = v; } },
   };
+  delete require.cache[require.resolve('../extension')]; // モジュール変数を毎回初期化
   const ext = require('../extension');
-  const mock = t.mock.timers; mock.enable({ apis: ['setInterval'] });
+  t.after(() => { Module._load = orig; t.mock.timers.reset(); ctx.subscriptions.forEach((d) => d.dispose && d.dispose()); });
+  return { ext, ctx, store, msgs, registered, status };
+}
+
+test('起動・ティック・放置分の進行・リセット', async (t) => {
+  const { ext, ctx, store, msgs, registered, status } = setup(t, { level: 3, gold: 10, lastSeen: Date.now() - 600 * 1000 });
   ext.activate(ctx);
-
   assert.ok(msgs.some((m) => m.includes('留守中')), '放置分の通知');
-  assert.ok(status.text.includes('Lv'), 'ステータスバー表示');
-  const lvAfterCatchUp = store['hero.state'].level;
-  mock.tick(250 * 10); // 10 ターン → 保存が走る
-  assert.ok(store['hero.state'].kills >= 0 && store['hero.state'].lastSeen > Date.now() - 5000);
-  assert.ok(lvAfterCatchUp >= 3);
-
+  assert.ok(status.text.includes('Lv'));
+  const kills = store['hero.state'].state.kills;
+  t.mock.timers.tick(250 * 10);
+  await ext.deactivate();
+  assert.ok(store['hero.state'].state.kills > kills, 'ティックで進み、deactivate で保存される');
   await registered['hero.reset']();
-  assert.strictEqual(store['hero.state'].level, 1);
-  ctx.subscriptions.forEach((d) => d.dispose && d.dispose());
-  mock.reset();
+  assert.strictEqual(store['hero.state'].state.level, 1);
+});
+
+test('deactivate は保存の Promise を返す', async (t) => {
+  const { ext, ctx, store } = setup(t, { level: 2, lastSeen: Date.now() });
+  ext.activate(ctx);
+  t.mock.timers.tick(250 * 3);
+  const p = ext.deactivate();
+  assert.ok(p && typeof p.then === 'function');
+  await p;
+  assert.ok(Date.now() - store['hero.state'].savedAt < 5000);
+});
+
+test('別ウィンドウが稼働中なら進行も上書き保存もしない', async (t) => {
+  const other = { owner: 'other-window', savedAt: Date.now(), state: { level: 7, gold: 99, kills: 5, lastSeen: Date.now() } };
+  const { ext, ctx, store, msgs } = setup(t, other);
+  ext.activate(ctx);
+  t.mock.timers.tick(250 * 20);
+  assert.strictEqual(msgs.length, 0, '二重に放置分を計算しない');
+  assert.strictEqual(store['hero.state'], other, '保存を食い合わない');
+  assert.strictEqual(await ext.deactivate(), undefined);
+  assert.strictEqual(store['hero.state'].owner, 'other-window');
+});
+
+test('他ウィンドウが止まっていれば引き継ぐ', async (t) => {
+  const stale = { owner: 'dead-window', savedAt: Date.now() - 60000, state: { level: 4, kills: 5, lastSeen: Date.now() - 60000 } };
+  const { ext, ctx, store } = setup(t, stale);
+  ext.activate(ctx);
+  assert.notStrictEqual(store['hero.state'].owner, 'dead-window');
+  assert.strictEqual(store['hero.state'].state.level >= 4, true);
 });

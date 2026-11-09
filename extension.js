@@ -5,7 +5,12 @@ const game = require('./game');
 const STATE_KEY = 'hero.state';
 const MAX_OFFLINE_TURNS = 3600; // 放置分の上限
 
-let state, timer, statusItem, view, saveCounter = 0;
+const HEARTBEAT_MS = 5000;   // 保存・排他チェックの間隔
+const OWNER_TIMEOUT_MS = 15000; // この時間更新が無い他ウィンドウは死んだとみなす
+const INSTANCE = Math.random().toString(36).slice(2);
+
+let state, timer, statusItem, view, extCtx;
+let active = true, lastSync = 0;
 
 const cfg = () => vscode.workspace.getConfiguration('hero');
 
@@ -23,21 +28,41 @@ function snapshot() {
 function render() {
   statusItem.text = `$(heart) ${state.hp}/${game.maxHp(state)}  Lv${state.level}  ${state.floor}F  ${state.gold}G`;
   statusItem.tooltip = `${state.name}の冒険（クリックで開く）`;
-  if (view) view.webview.postMessage({ type: 'state', state: snapshot() });
+  if (view && view.visible) view.webview.postMessage({ type: 'state', state: snapshot() });
 }
 
-function save(ctx) {
+function save() {
   state.lastSeen = Date.now();
-  return ctx.globalState.update(STATE_KEY, state);
+  return extCtx.globalState.update(STATE_KEY, { owner: INSTANCE, savedAt: state.lastSeen, state });
 }
 
-function startLoop(ctx) {
+// 複数ウィンドウの排他: 直近に他ウィンドウが保存していればそちらに任せ、自分は表示だけ行う。
+function sync() {
+  lastSync = Date.now();
+  const env = extCtx.globalState.get(STATE_KEY);
+  const raw = env && env.state ? env.state : env; // 旧形式（envelope なし）も許容
+  const other = env && env.owner && env.owner !== INSTANCE && Date.now() - env.savedAt < OWNER_TIMEOUT_MS;
+  if (other) {
+    active = false;
+    state = game.load(raw, cfg().get('name', 'ヒーロー'));
+    statusItem.tooltip = '別のウィンドウで冒険中（こちらは表示のみ）';
+    return;
+  }
+  if (!active || !state) { // 起動時、または他ウィンドウが止まったので引き継ぐ
+    active = true;
+    state = game.load(raw, cfg().get('name', 'ヒーロー'));
+    catchUp();
+  }
+  save();
+}
+
+function startLoop() {
   clearInterval(timer);
   const ms = Math.max(250, cfg().get('tickSeconds', 1) * 1000);
   timer = setInterval(() => {
-    game.tick(state);
+    if (Date.now() - lastSync >= HEARTBEAT_MS) sync();
+    if (active) game.tick(state);
     render();
-    if (++saveCounter % 10 === 0) save(ctx);
   }, ms);
 }
 
@@ -61,14 +86,16 @@ class HeroViewProvider {
       if (m.type === 'heal') vscode.commands.executeCommand('hero.heal');
       if (m.type === 'ready') render();
     });
+    v.onDidChangeVisibility(() => render());
     v.onDidDispose(() => { if (view === v) view = undefined; });
     render();
   }
 }
 
 function html() {
+  const nonce = require('crypto').randomBytes(16).toString('hex');
   return `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);margin:0;padding:8px 12px;font-size:12px}
 .row{display:flex;gap:16px;align-items:stretch}
@@ -107,7 +134,7 @@ button{background:var(--vscode-button-background);color:var(--vscode-button-fore
  </div>
  <div class="log" id="log"></div>
 </div>
-<script>
+<script nonce="${nonce}">
 const vscode=acquireVsCodeApi();
 const $=id=>document.getElementById(id);
 let prevMon=null,prevMonHp=0,prevKills=-1;
@@ -144,36 +171,39 @@ vscode.postMessage({type:'ready'});
 }
 
 function activate(ctx) {
-  state = game.load(ctx.globalState.get(STATE_KEY), cfg().get('name', 'ヒーロー'));
+  extCtx = ctx;
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.command = 'hero.show';
   statusItem.show();
 
-  catchUp();
+  sync();
   render();
-  startLoop(ctx);
+  startLoop();
 
   ctx.subscriptions.push(
     statusItem,
-    vscode.window.registerWebviewViewProvider('hero.view', new HeroViewProvider(), { webviewOptions: { retainContextWhenHidden: true } }),
+    vscode.window.registerWebviewViewProvider('hero.view', new HeroViewProvider()),
     vscode.commands.registerCommand('hero.show', () => vscode.commands.executeCommand('hero.view.focus')),
     vscode.commands.registerCommand('hero.heal', () => {
-      if (game.heal(state)) render();
+      if (active && game.heal(state)) render();
       else vscode.window.showInformationMessage(`回復薬は使えません（${game.HEAL_COST}G 必要、HP が満タンだと不要）`);
     }),
     vscode.commands.registerCommand('hero.reset', async () => {
       const ok = await vscode.window.showWarningMessage('冒険を最初からやり直しますか？', { modal: true }, 'やり直す');
-      if (ok) { state = game.newState(cfg().get('name', 'ヒーロー')); await save(ctx); render(); }
+      if (ok) { state = game.newState(cfg().get('name', 'ヒーロー')); active = true; await save(); render(); }
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('hero.name')) { state.name = cfg().get('name', 'ヒーロー'); render(); }
-      if (e.affectsConfiguration('hero.tickSeconds')) startLoop(ctx);
+      if (e.affectsConfiguration('hero.tickSeconds')) startLoop();
     }),
     { dispose: () => clearInterval(timer) },
   );
 }
 
-function deactivate(ctx) { clearInterval(timer); }
+// VSCode は deactivate が返す Promise を待つので、最終保存はここで行う。
+function deactivate() {
+  clearInterval(timer);
+  return active && state && extCtx ? save() : undefined;
+}
 
-// VSCode は deactivate の戻り値の Promise を待つ。ここで最終保存する。
-module.exports = { activate: (ctx) => { activate(ctx); ctx.subscriptions.push({ dispose: () => save(ctx) }); }, deactivate };
+module.exports = { activate, deactivate };
