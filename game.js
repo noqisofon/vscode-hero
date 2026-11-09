@@ -11,6 +11,7 @@ const MONSTERS = [
   { name: 'ドラゴン', icon: '🐉', hp: 6, atk: 3.5, xp: 12, gold: 15 },
 ];
 const BOSS_EVERY = 10; // 10 階ごとにボス
+const BOSS_SAFETY = 1.2; // 倒すまでの見込み被ダメージにこの余裕を掛けた HP が無ければボスに挑まない
 const BOSS_MIN_HP_RATIO = 0.6; // HP がこの割合未満ならボスに挑まず、通常モンスターで回復する
 const BOSS_SCALE_BONUS = 0.5;
 const BOSS_HP_MULT = 1.5;
@@ -38,23 +39,39 @@ function pushLog(s, msg) {
   if (s.log.length > MAX_LOG) s.log.splice(0, s.log.length - MAX_LOG);
 }
 
-function spawn(s, rng) {
-  const bossFloor = s.floor % BOSS_EVERY === 0;
-  const boss = bossFloor && s.hp >= maxHp(s) * BOSS_MIN_HP_RATIO;
-  const prep = bossFloor && !boss; // ボス前の回復待ち: 1 つ下の階相当の雑魚と戦い、階は進めない
+function makeMonster(s, rng, boss, prep) {
   const tier = Math.min(MONSTERS.length - 1, Math.floor((s.floor - 1) / 3));
   const base = boss ? MONSTERS[MONSTERS.length - 1] : MONSTERS[Math.max(0, tier - Math.floor(rng() * 2))];
   const scale = 1 + (prep ? s.floor - 2 : s.floor - 1) * 0.35 + (boss ? BOSS_SCALE_BONUS : 0);
   const hp = Math.ceil(10 * base.hp * scale * (boss ? BOSS_HP_MULT : 1));
-  s.monster = {
+  return {
     name: (boss ? 'ボス ' : '') + base.name, icon: base.icon, boss, prep,
     hp, maxHp: hp,
     atk: Math.max(1, Math.round(2 * base.atk * scale * (boss ? BOSS_ATK_MULT : 1))),
     xp: Math.ceil(4 * base.xp * scale * (boss ? 4 : 1)),
     gold: Math.ceil(3 * base.gold * scale * (boss ? 4 : 1)),
   };
-  if (prep) pushLog(s, `🩹 ボスに備えて体力を整える (HP ${s.hp}/${maxHp(s)})`);
-  pushLog(s, `${s.monster.icon} ${s.monster.name} が現れた！`);
+}
+
+// ボスを倒すまでに受ける見込みダメージ（会心込みの平均与ダメージで概算）
+function expectedBossDamage(s, boss) {
+  const turns = Math.ceil(boss.hp / (power(s) * 1.1));
+  return turns * boss.atk;
+}
+
+function spawn(s, rng) {
+  let m;
+  if (s.floor % BOSS_EVERY === 0) {
+    const boss = makeMonster(s, rng, true, false);
+    const ready = s.hp >= maxHp(s) * BOSS_MIN_HP_RATIO && s.hp >= expectedBossDamage(s, boss) * BOSS_SAFETY;
+    // 準備不足なら 1 つ下の階相当の雑魚と戦って回復・育成する（階は進めない）
+    m = ready ? boss : makeMonster(s, rng, false, true);
+    if (!ready) pushLog(s, `🩹 ボスに備えて鍛える (HP ${s.hp}/${maxHp(s)})`);
+  } else {
+    m = makeMonster(s, rng, false, false);
+  }
+  s.monster = m;
+  pushLog(s, `${m.icon} ${m.name} が現れた！`);
 }
 
 function gainXp(s, n) {

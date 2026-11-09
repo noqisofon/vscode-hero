@@ -105,9 +105,26 @@ test('ボス階でHPが6割未満なら、階を進めず雑魚で回復して�
   assert.ok(s.hp >= g.maxHp(s) * 0.6);
 });
 
-test('ボス階でHPが十分ならボスが出る', () => {
+test('ボス階で十分に強く、HPも足りていればボスが出る', () => {
   const s = g.newState();
-  s.floor = 10; s.hp = g.maxHp(s); s.monster = null;
+  s.floor = 10; s.level = 40; s.weapon = 10; s.armor = 10; s.hp = g.maxHp(s); s.monster = null;
   g.tick(s, () => 0.5);
   assert.ok(s.monster.boss && !s.monster.prep);
+});
+
+test('ボス階で全快でも弱ければ挑まず、鍛えてから挑む', () => {
+  const s = g.newState();
+  s.floor = 10; s.level = 4; s.hp = g.maxHp(s); s.monster = null;
+  g.tick(s, () => 0.5);
+  assert.ok(s.monster.prep && !s.monster.boss, 'Lv4 では挑まない');
+  assert.strictEqual(s.floor, 10);
+});
+
+test('回帰: 序盤の死亡が多すぎない（最初の300ターンで10回以下）', () => {
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const s = g.newState();
+    g.simulate(s, 300, seeded(seed));
+    assert.ok(s.deaths <= 10, `seed=${seed} deaths=${s.deaths}`);
+    assert.ok(s.bestFloor >= 10, `seed=${seed} best=${s.bestFloor}`);
+  }
 });
