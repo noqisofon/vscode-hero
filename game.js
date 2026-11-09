@@ -17,6 +17,7 @@ const BOSS_SCALE_BONUS = 0.5;
 const BOSS_HP_MULT = 1.5;
 const BOSS_ATK_MULT = 0.8;
 const DEATH_GOLD_PER_FLOOR = 3; // 死亡時に失うゴールド = 階数 × これ
+const GEAR_COST_GROWTH = 1.3; // 装備費は購入ごとにこの倍率で増える
 const HEAL_COST = 50;
 const MAX_LOG = 30;
 
@@ -32,8 +33,8 @@ function newState(name = 'ヒーロー') {
 const maxHp = (s) => 30 + (s.level - 1) * 8 + s.armor * 5;
 const power = (s) => 4 + (s.level - 1) * 2 + s.weapon * 3;
 const xpToNext = (s) => Math.floor(10 * Math.pow(1.25, s.level - 1));
-const weaponCost = (s) => Math.floor(30 * Math.pow(1.6, s.weapon));
-const armorCost = (s) => Math.floor(30 * Math.pow(1.6, s.armor));
+const weaponCost = (s) => Math.floor(30 * Math.pow(GEAR_COST_GROWTH, s.weapon));
+const armorCost = (s) => Math.floor(30 * Math.pow(GEAR_COST_GROWTH, s.armor));
 
 function pushLog(s, msg) {
   s.log.push(msg);

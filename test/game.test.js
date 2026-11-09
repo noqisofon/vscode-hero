@@ -136,3 +136,14 @@ test('死亡時のゴールド損失は定額で、貯金が多くても増え�
   g.tick(s, () => 0.5);
   assert.strictEqual(s.gold, 100000 - 60);
 });
+
+test('回帰: 放置で長く遊べる（30階までは約30分、10時間で40階前後）', () => {
+  for (const seed of [1, 2, 3]) {
+    const s = g.newState();
+    const rng = seeded(seed);
+    let at30 = 0;
+    for (let i = 1; i <= 36000; i++) { g.tick(s, rng); if (!at30 && s.bestFloor >= 30) at30 = i; }
+    assert.ok(at30 > 0 && at30 <= 2500, `seed=${seed} 30F到達=${at30}`);
+    assert.ok(s.bestFloor >= 38, `seed=${seed} 10時間後 best=${s.bestFloor}`);
+  }
+});
