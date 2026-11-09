@@ -1,0 +1,37 @@
+{
+  "name": "vscode-hero",
+  "displayName": "Idle Hero",
+  "description": "ヒーローがエディタの隅で勝手に冒険し続ける放置系ゲーム",
+  "version": "0.1.0",
+  "publisher": "noqisofon",
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        { "id": "hero", "title": "Hero", "icon": "media/icon.svg" }
+      ]
+    },
+    "views": {
+      "hero": [
+        { "type": "webview", "id": "hero.view", "name": "冒険" }
+      ]
+    },
+    "commands": [
+      { "command": "hero.show", "title": "Hero: 冒険を見る" },
+      { "command": "hero.heal", "title": "Hero: 回復薬を使う (50G)" },
+      { "command": "hero.reset", "title": "Hero: 最初からやり直す" }
+    ],
+    "configuration": {
+      "title": "Idle Hero",
+      "properties": {
+        "hero.name": { "type": "string", "default": "ヒーロー", "description": "ヒーローの名前" },
+        "hero.tickSeconds": { "type": "number", "default": 1, "minimum": 0.25, "description": "1ターンの秒数" }
+      }
+    }
+  },
+  "scripts": { "test": "node --test \"test/*.test.js\"" }
+}
